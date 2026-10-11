@@ -147,3 +147,13 @@ export const isInsideLoop = (ancestors: AstNode[]): boolean => {
   }
   return false;
 };
+
+/** Visitors calling `check` with the value of every string literal and template chunk. */
+export const stringVisitors = (
+  check: (node: AstNode, value: string) => void
+): Record<'Literal' | 'TemplateElement', (node: AstNode) => void> => ({
+  Literal: (node) => {
+    if (typeof node.value === 'string') check(node, node.value);
+  },
+  TemplateElement: (node) => check(node, node.value.cooked ?? node.value.raw),
+});

@@ -10,8 +10,17 @@ export type AstNode = {
 
 export type RuleVisitor = Partial<Record<string, (node: AstNode, ancestors: AstNode[]) => void>>;
 
+/** Deployment-specific allow-lists that relax individual rules. Everything is denied by default. */
+export type CheckOptions = {
+  /** Origins (e.g. `https://gateway.internal`) that network calls may target. */
+  allowedNetworkOrigins?: string[];
+  /** Absolute directory that file paths in a script may point into. */
+  scratchDirectory?: string | null;
+};
+
 export type RuleContext = {
   source: string;
+  options: CheckOptions;
   report: (node: AstNode, message?: string) => void;
 };
 

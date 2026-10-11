@@ -3,7 +3,12 @@ import { createMockStrapi } from './mock-strapi';
 
 describe('plugin config', () => {
   it('defaults both features to enabled', () => {
-    expect(config.default).toEqual({ securityCheck: true, syntaxHighlighting: true });
+    expect(config.default).toEqual({
+      securityCheck: true,
+      syntaxHighlighting: true,
+      allowedNetworkOrigins: [],
+      scratchDirectory: null,
+    });
     expect(defaultConfig).toBe(config.default);
   });
 
@@ -17,16 +22,38 @@ describe('plugin config', () => {
     expect(() => config.validator({ syntaxHighlighting: 1 as any })).toThrow(/syntaxHighlighting/);
   });
 
+  it('validates the egress and scratch directory allow-lists', () => {
+    expect(() =>
+      config.validator({ allowedNetworkOrigins: ['https://gateway.internal'], scratchDirectory: '/srv/scratch' })
+    ).not.toThrow();
+    expect(() => config.validator({ allowedNetworkOrigins: 'https://x' as any })).toThrow(/allowedNetworkOrigins/);
+    expect(() => config.validator({ allowedNetworkOrigins: ['https://x/path'] })).toThrow(/allowedNetworkOrigins/);
+    expect(() => config.validator({ allowedNetworkOrigins: ['file:///etc'] })).toThrow(/allowedNetworkOrigins/);
+    expect(() => config.validator({ scratchDirectory: 'tmp' })).toThrow(/scratchDirectory/);
+    expect(() => config.validator({ scratchDirectory: '/' })).toThrow(/scratchDirectory/);
+    expect(() => config.validator({ scratchDirectory: '/srv/../etc' })).toThrow(/scratchDirectory/);
+  });
+
   it('rejects any attempt to configure auth', () => {
     expect(() => config.validator({ enforceAuth: false } as any)).toThrow(/always required/);
   });
 
   it('reads config, keeping safe defaults unless explicitly false', () => {
-    expect(getPluginConfig(createMockStrapi().strapi)).toEqual({ securityCheck: true, syntaxHighlighting: true });
+    expect(getPluginConfig(createMockStrapi().strapi)).toEqual(defaultConfig);
     expect(getPluginConfig(createMockStrapi({ securityCheck: false }).strapi)).toEqual({
+      ...defaultConfig,
       securityCheck: false,
-      syntaxHighlighting: true,
     });
     expect(getPluginConfig(createMockStrapi({ syntaxHighlighting: 'no' }).strapi).syntaxHighlighting).toBe(true);
+  });
+
+  it('falls back to deny-all for malformed allow-lists', () => {
+    const read = (values: Record<string, unknown>) => getPluginConfig(createMockStrapi(values).strapi);
+    expect(read({ allowedNetworkOrigins: ['https://gateway.internal', 'nope', 3] }).allowedNetworkOrigins).toEqual([
+      'https://gateway.internal',
+    ]);
+    expect(read({ allowedNetworkOrigins: 'https://x' }).allowedNetworkOrigins).toEqual([]);
+    expect(read({ scratchDirectory: '/srv/scratch' }).scratchDirectory).toBe('/srv/scratch');
+    expect(read({ scratchDirectory: '../x' }).scratchDirectory).toBeNull();
   });
 });

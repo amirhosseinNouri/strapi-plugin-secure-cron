@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- New error rules: `no-child-process` (any mention of child_process, its internal bindings, or
+  exec/execSync/execFile/spawn/spawnSync/fork), `no-native-modules` (.node addons, ffi, bindings,
+  node-gyp, dlopen) and `no-filesystem-access` (system absolute paths, `..` traversal, symlinks, fs
+  calls, `__dirname`/`__filename`).
+- `no-network-calls` (still a warning) also covers `strapi.fetch`, `navigator.sendBeacon`,
+  `EventSource` and aliased `fetch`. Calls with a literal URL on an origin listed in the new
+  `allowedNetworkOrigins` config skip the warning.
+- `no-code-evaluation` also catches `Function.constructor`, aliased `Function`, async/generator
+  function constructors and node:vm (`runInContext`, `runInNewContext`, `new vm.Script`, ...).
+- `no-dynamic-module-loading` also catches `module.require`, `module.constructor._load` and
+  `createRequire`.
+- `no-process-access` names the specific danger of `process.env`, `exit`, `binding`, `dlopen`, ...
+- New `scratchDirectory` config: file paths inside it pass `no-filesystem-access`.
+
 ## 3.0.0: strapi-plugin-secure-cron
 
 First release of the security-hardened fork of `@innovato/strapi-plugin-cron@2.0.2`.

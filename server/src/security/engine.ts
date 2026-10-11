@@ -1,7 +1,7 @@
 import { parse } from 'acorn';
 import { fullAncestor } from 'acorn-walk';
 import { rules as defaultRules } from './rules';
-import type { AstNode, RuleVisitor, SecurityFinding, SecurityRule } from './types';
+import type { AstNode, CheckOptions, RuleVisitor, SecurityFinding, SecurityRule } from './types';
 
 export type CheckResult = {
   passed: boolean;
@@ -25,7 +25,11 @@ const sortFindings = (a: SecurityFinding, b: SecurityFinding) =>
  * accidental or careless dangerous code and obvious malware, but a determined
  * attacker with script-editing rights can still find ways around it.
  */
-export const checkScript = (source: string, rules: SecurityRule[] = defaultRules): CheckResult => {
+export const checkScript = (
+  source: string,
+  rules: SecurityRule[] = defaultRules,
+  options: CheckOptions = {}
+): CheckResult => {
   const findings: SecurityFinding[] = [];
 
   let ast: AstNode;
@@ -58,6 +62,7 @@ export const checkScript = (source: string, rules: SecurityRule[] = defaultRules
     rule,
     visitor: rule.create({
       source,
+      options,
       report: (node, message) => {
         const start = node.loc?.start ?? { line: 1, column: 0 };
         const end = node.loc?.end ?? start;

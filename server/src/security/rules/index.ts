@@ -1,12 +1,15 @@
 import type { SecurityRule } from '../types';
 import { noBulkDeletes } from './no-bulk-deletes';
+import { noChildProcess } from './no-child-process';
 import { noCodeEvaluation } from './no-code-evaluation';
 import { noDangerousModules } from './no-dangerous-modules';
 import { noDeprecatedApis } from './no-deprecated-apis';
 import { noDynamicModuleLoading } from './no-dynamic-module-loading';
 import { noDynamicPropertyAccess } from './no-dynamic-property-access';
+import { noFilesystemAccess } from './no-filesystem-access';
 import { noGlobalTampering } from './no-global-tampering';
 import { noInfiniteLoops } from './no-infinite-loops';
+import { noNativeModules } from './no-native-modules';
 import { noNetworkCalls } from './no-network-calls';
 import { noObfuscation } from './no-obfuscation';
 import { noProcessAccess } from './no-process-access';
@@ -23,10 +26,13 @@ import { noStrapiInternals } from './no-strapi-internals';
  */
 export const rules: SecurityRule[] = [
   // errors: block the save
+  noChildProcess,
   noDangerousModules,
   noDynamicModuleLoading,
+  noNativeModules,
   noCodeEvaluation,
   noProcessAccess,
+  noFilesystemAccess,
   noGlobalTampering,
   noPrototypeEscape,
   noRawDatabase,

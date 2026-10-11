@@ -12,7 +12,8 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
     if (!this.isEnabled()) {
       return { enabled: false, passed: true, errors: 0, warnings: 0, findings: [] };
     }
-    return { enabled: true, ...checkScript(script ?? '') };
+    const { allowedNetworkOrigins, scratchDirectory } = getPluginConfig(strapi);
+    return { enabled: true, ...checkScript(script ?? '', rules, { allowedNetworkOrigins, scratchDirectory }) };
   },
 
   listRules() {

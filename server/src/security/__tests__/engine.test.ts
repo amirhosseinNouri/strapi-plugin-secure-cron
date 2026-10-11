@@ -49,11 +49,29 @@ describe('checkScript', () => {
   });
 
   it('counts errors and warnings and sorts findings by position', () => {
-    const result = checkScript("await fetch('https://x');\nprocess.exit(1);\nwhile (true) {}");
+    const result = checkScript("await strapi.documents('api::a.a').deleteMany({});\nprocess.exit(1);\nwhile (true) {}");
     expect(result.errors).toBe(1);
     expect(result.warnings).toBe(2);
     expect(result.passed).toBe(false);
     expect(result.findings.map((f) => f.line)).toEqual([1, 2, 3]);
+  });
+
+  it('passes allow-list options to rules', () => {
+    const options = { allowedNetworkOrigins: ['https://gateway.internal'], scratchDirectory: '/srv/scratch' };
+    const allowed = "await fetch('https://gateway.internal/hooks/x');\nfs.writeFileSync('/srv/scratch/out.json', '{}');";
+    expect(checkScript(allowed).passed).toBe(false);
+    expect(checkScript(allowed, undefined, options)).toMatchObject({ passed: true, findings: [] });
+
+    const denied = checkScript(
+      "await fetch('https://gateway.internal.evil.com/x');\nfs.writeFileSync('/srv/scratch/../app/.env', '');",
+      undefined,
+      options
+    );
+    expect(denied.findings.map((f) => f.ruleId).sort()).toEqual([
+      'no-filesystem-access',
+      'no-filesystem-access',
+      'no-network-calls',
+    ]);
   });
 
   it('sorts errors before warnings at the same position', () => {

@@ -34,6 +34,9 @@ export default ({ env }) => ({
     config: {
       securityCheck: env.bool('CRON_PLUGIN_SECURITY_CHECK', true),
       syntaxHighlighting: env.bool('CRON_PLUGIN_SYNTAX_HIGHLIGHT', true),
+      // Optional allow-lists; both default to deny-all.
+      allowedNetworkOrigins: ['https://egress-gateway.internal'],
+      scratchDirectory: '/srv/cron-scratch',
     },
   },
 });
@@ -50,6 +53,8 @@ Then rebuild the admin panel: `npm run build`.
 | --- | --- | --- |
 | `securityCheck` | `true` | Run the script security check. When `false`, scripts are neither checked nor blocked. |
 | `syntaxHighlighting` | `true` | Use the CodeMirror editor. When `false`, a plain monospace textarea is used (full screen still works). |
+| `allowedNetworkOrigins` | `[]` | Origins scripts may call with `fetch`, `strapi.fetch` or `WebSocket`, e.g. an internal egress gateway. A literal URL on one of these origins skips the `no-network-calls` warning; any other call still needs acknowledgement. |
+| `scratchDirectory` | `null` | Absolute directory that file paths in a script may point into. Paths elsewhere, `..` traversal and symlink calls are always `no-filesystem-access` errors. Scripts get no `fs` handle at runtime, so this only relaxes the static check. |
 
 Authentication cannot be configured. A config containing `enforceAuth` is rejected at startup.
 
@@ -101,10 +106,13 @@ Every script goes through a static security check. Findings come in two levels:
 <!-- rules:start -->
 | Rule | Severity | What it catches and why |
 | --- | --- | --- |
+| `no-child-process` | ⛔ error | Spawning processes is not allowed. child_process (exec, execSync, execFile, spawn, spawnSync, fork) runs shell commands with the permissions of the Strapi server. Any mention of the module, its internal bindings or its functions is rejected. |
 | `no-dangerous-modules` | ⛔ error | Loading Node.js system modules is not allowed. Modules such as child_process, fs, net, http and vm give a script shell, filesystem and network access to the server. Use the strapi APIs passed to the script instead. |
-| `no-dynamic-module-loading` | ⛔ error | Loading modules is not allowed in cron scripts. require() and import() are how a script escapes the strapi API surface. Computed module names also defeat static review. Everything a cron script needs is available on the strapi object. |
-| `no-code-evaluation` | ⛔ error | Evaluating strings as code is not allowed. eval, the Function constructor and string-based timers run arbitrary code that cannot be reviewed or security-checked. Write the logic directly in the script. |
-| `no-process-access` | ⛔ error | Accessing the Node.js process object is not allowed. process exposes environment variables (secrets), process.exit, process.binding and process.mainModule.require, which bypass every other safeguard. |
+| `no-dynamic-module-loading` | ⛔ error | Loading modules is not allowed in cron scripts. The module allow-list for cron scripts is empty: require(), import(), module.require and createRequire are how a script escapes the strapi API surface and loads packages from node_modules. Computed module names also defeat static review. Everything a cron script needs is available on the strapi object. |
+| `no-native-modules` | ⛔ error | Loading native code is not allowed. Native addons (.node files), FFI libraries (ffi, ffi-napi, koffi), bindings and node-gyp run machine code inside the server process, outside the reach of any JavaScript check. |
+| `no-code-evaluation` | ⛔ error | Evaluating strings as code is not allowed. eval, the Function constructor (including Function.constructor and the async/generator variants), node:vm and string-based timers run arbitrary code that cannot be reviewed or security-checked. Write the logic directly in the script. |
+| `no-process-access` | ⛔ error | Accessing the Node.js process object is not allowed. process exposes environment variables (secrets), process.exit, process.binding, process.dlopen and process.mainModule.require, which bypass every other safeguard. Every use of process is rejected. |
+| `no-filesystem-access` | ⛔ error | Filesystem access outside the scratch directory is not allowed. Reading or writing server files leaks secrets (.env, keys) and lets a script plant code. Absolute system paths, ".." traversal, symlinks and fs calls are rejected; only paths inside the configured scratchDirectory are allowed. |
 | `no-global-tampering` | ⛔ error | Modifying globals, built-in prototypes or the strapi object is not allowed. Overwriting globals, prototypes or strapi internals changes the behaviour of the whole server process, not only the script, and is a common persistence technique. |
 | `no-prototype-escape` | ⛔ error | Reaching constructors through prototypes is not allowed. Chains like x.constructor.constructor or __proto__ reach the Function constructor and evaluate arbitrary code without the words eval or Function appearing in the script. |
 | `no-raw-database` | ⛔ error | Raw database access is not allowed. strapi.db.connection (knex) and .raw() run arbitrary SQL, bypassing Strapi validation and access control, and can read admin users, tokens and secrets. Use strapi.documents() instead. |
@@ -113,7 +121,7 @@ Every script goes through a static security check. Findings come in two levels:
 | `no-obfuscation` | ⚠️ warning | The script contains patterns commonly used to hide code. Encoded payloads, heavy escape sequences and character-code assembly hide what a script really does from reviewers and from this check. Keep scripts readable; store large data in content types instead. |
 | `no-dynamic-property-access` | ⚠️ warning | Computed property access on strapi or globals cannot be checked. strapi[name] or globalThis[name] lets a script reach any internal at runtime, so the static check cannot tell what it touches. Use literal property names. |
 | `no-infinite-loops` | ⚠️ warning | The script contains a loop that never exits. Scripts run inside the Strapi server process. A loop without an exit blocks the event loop and freezes the whole CMS. |
-| `no-network-calls` | ⚠️ warning | The script makes outbound network requests. Outbound requests can send CMS data to third parties. They are sometimes legitimate (webhooks, cache warming); make sure the destination is trusted before acknowledging. |
+| `no-network-calls` | ⚠️ warning | The script makes outbound network requests. fetch, strapi.fetch, WebSocket, XMLHttpRequest and EventSource can send CMS data to third parties (the http, https, net and dns modules are blocked outright). Make sure the destination is trusted before acknowledging, or list your internal gateway in allowedNetworkOrigins and call it with a literal URL to skip the warning. |
 | `no-bulk-deletes` | ⚠️ warning | The script deletes content in bulk. deleteMany() or delete() inside a loop can wipe a whole collection on every tick. Double-check the filters before acknowledging. |
 | `no-self-modification` | ⚠️ warning | The script accesses cron jobs themselves. A cron job that edits cron jobs can rewrite scripts after they passed this check, without leaving an audit trail of who changed them. Manage cron jobs through the admin panel. |
 | `no-deprecated-apis` | ⚠️ warning | The script uses a deprecated Strapi API. strapi.entityService is deprecated in Strapi 5 and skips document-level logic. Use strapi.documents() instead. |

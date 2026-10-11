@@ -265,7 +265,8 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
     },
 
     async settings(ctx: any) {
-      ctx.body = getPluginConfig(strapi);
+      const { securityCheck, syntaxHighlighting } = getPluginConfig(strapi);
+      ctx.body = { securityCheck, syntaxHighlighting };
     },
 
     async rules(ctx: any) {

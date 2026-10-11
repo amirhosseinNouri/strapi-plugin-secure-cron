@@ -9,6 +9,15 @@ describe('security service', () => {
     expect(result).toMatchObject({ enabled: true, passed: false, errors: 1 });
   });
 
+  it('applies the configured egress and scratch directory allow-lists', () => {
+    const script = "await fetch('https://gateway.internal/x');\nfs.readFileSync('/srv/scratch/in.json');";
+    expect(securityService(createMockStrapi()).check(script).passed).toBe(false);
+    const configured = securityService(
+      createMockStrapi({ allowedNetworkOrigins: ['https://gateway.internal'], scratchDirectory: '/srv/scratch' })
+    );
+    expect(configured.check(script)).toMatchObject({ passed: true, findings: [] });
+  });
+
   it('treats a missing script as empty', () => {
     expect(securityService(createMockStrapi()).check(undefined)).toMatchObject({ enabled: true, passed: true });
   });
