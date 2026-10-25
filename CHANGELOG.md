@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `publishGuardMode` config: `'error'` (default, unchanged) keeps a job off on guard errors; `'warn'` turns the job on
+  or runs it and reports the findings as warnings. A guard that throws still blocks.
+- Turning a job on or test-running it returns the guard's warnings (`contentWarnings`) and the job list shows them,
+  with links; they are also recorded on the `publish` / `trigger` audit events.
+
 ## Unreleased: markdown safety
 
 ### Security

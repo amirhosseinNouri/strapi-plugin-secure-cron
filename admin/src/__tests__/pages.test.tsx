@@ -168,6 +168,28 @@ describe('HomePage', () => {
     expect(screen.getByRole('button', { name: 'Edit script' })).toBeInTheDocument();
   });
 
+  it('shows publish guard warnings after turning a job on or test-running it', async () => {
+    setupApi();
+    const contentWarnings = [
+      { severity: 'warning', message: 'food/home: 15 Tables block(s) contain non-table HTML.', link: '/admin/content-manager/x' },
+    ];
+    fetchClient.put.mockResolvedValueOnce({ data: { ...fixtureJob(), publicationDate: 'now', contentWarnings } });
+    renderWithProviders(<HomePage />);
+    await screen.findByText('Nightly cleanup');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch'));
+    });
+    expect(screen.getByText('"Nightly cleanup" is on, with warnings')).toBeInTheDocument();
+    expect(screen.getByText(/15 Tables block\(s\) contain non-table HTML/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open/ })).toHaveAttribute('href', '/admin/content-manager/x');
+
+    fetchClient.post.mockResolvedValueOnce({ data: { success: true, logs: [], contentWarnings } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Test Run' }));
+    });
+    expect(screen.getByText('"Nightly cleanup" ran, with warnings')).toBeInTheDocument();
+  });
+
   it('lists content the publish guard found and can be dismissed', async () => {
     setupApi();
     renderWithProviders(<HomePage />);

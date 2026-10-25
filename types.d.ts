@@ -80,4 +80,9 @@ export type TriggerResult = {
   success: boolean;
   logs: string[][];
   error?: string;
+  /** publishGuard warnings for this run; they did not block it. */
+  contentWarnings?: ContentFinding[];
 };
+
+/** A published cron job, plus any publishGuard warnings that did not block publishing. */
+export type PublishResult = CronJob & { contentWarnings?: ContentFinding[] };

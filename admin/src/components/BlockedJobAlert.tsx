@@ -5,9 +5,30 @@ import { SecurityFindings } from './ScriptEditor';
 
 export type BlockedJob = {
   cronJob: CronJob;
+  /** 'blocked': the job stayed off or did not run. 'warnings': it went ahead, with publishGuard warnings. */
+  kind?: 'blocked' | 'warnings';
+  title?: string;
   message: string;
   securityResult: SecurityCheckResult | null;
   contentFindings: ContentFinding[];
+};
+
+/** publishGuard warnings returned by a successful publish or test run, or null when there are none. */
+export const toWarnedJob = (
+  cronJob: CronJob,
+  warnings: ContentFinding[] | undefined,
+  operation: 'publish' | 'trigger'
+): BlockedJob | null => {
+  if (!warnings?.length) return null;
+  return {
+    cronJob,
+    kind: 'warnings',
+    title: operation === 'publish' ? `"${cronJob.name}" is on, with warnings` : `"${cronJob.name}" ran, with warnings`,
+    message:
+      'The publish guard reported the issues below. They did not stop the job, but the content they name may not be updated until it is fixed.',
+    securityResult: null,
+    contentFindings: warnings,
+  };
 };
 
 /** Turns a 422 from publish/trigger into what the user must fix, or null for any other error. */
@@ -37,7 +58,12 @@ type Props = {
 
 export const BlockedJobAlert = ({ blocked, onEdit, onClose }: Props) => (
   <Box marginBottom={6} data-testid="blocked-job">
-    <Alert variant="danger" title={`"${blocked.cronJob.name}" was not turned on`} closeLabel="Close" onClose={onClose}>
+    <Alert
+      variant={blocked.kind === 'warnings' ? 'warning' : 'danger'}
+      title={blocked.title ?? `"${blocked.cronJob.name}" was not turned on`}
+      closeLabel="Close"
+      onClose={onClose}
+    >
       {blocked.message}
     </Alert>
     <Box padding={4} background="neutral0" hasRadius shadow="tableShadow" marginTop={2}>

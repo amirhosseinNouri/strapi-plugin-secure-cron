@@ -45,6 +45,21 @@ describe('security service', () => {
       expect(guard).toHaveBeenCalledWith({ strapi, cronJob: job });
     });
 
+    it("reports error findings as warnings in 'warn' mode, but still blocks when the guard throws", async () => {
+      const guard = () => [
+        { severity: 'error' as const, message: 'food/home is misused', link: '/admin/x' },
+        { severity: 'warning' as const, message: 'heads up' },
+      ];
+      expect(await securityService(createMockStrapi({ publishGuard: guard, publishGuardMode: 'warn' })).guard(job)).toEqual([
+        { severity: 'warning', message: 'food/home is misused', link: '/admin/x' },
+        { severity: 'warning', message: 'heads up' },
+      ]);
+      const throwing = securityService(
+        createMockStrapi({ publishGuardMode: 'warn', publishGuard: () => { throw new Error('db down'); } })
+      );
+      expect(await throwing.guard(job)).toEqual([{ severity: 'error', message: 'The publish guard failed: db down' }]);
+    });
+
     it('fails closed when the guard throws or returns garbage', async () => {
       const throwing = securityService(createMockStrapi({ publishGuard: () => { throw new Error('db down'); } }));
       expect(await throwing.guard(job)).toEqual([{ severity: 'error', message: 'The publish guard failed: db down' }]);

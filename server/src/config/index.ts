@@ -2,6 +2,9 @@ import type { Core } from '@strapi/strapi';
 import type { PublishGuard } from '../../../types';
 import { PLUGIN_ID } from '../../../utils/plugin';
 
+export type PublishGuardMode = 'error' | 'warn';
+const PUBLISH_GUARD_MODES: PublishGuardMode[] = ['error', 'warn'];
+
 export type PluginConfig = {
   /** Run the static security check on scripts before they are saved, scheduled or triggered. */
   securityCheck: boolean;
@@ -16,6 +19,11 @@ export type PluginConfig = {
   /** Project-specific check run before a job is turned on or test-run; errors keep it off. */
   publishGuard: PublishGuard | null;
   /**
+   * How publishGuard errors are applied: 'error' keeps the job off, 'warn' turns it on (or runs it)
+   * and shows the findings as warnings.
+   */
+  publishGuardMode: PublishGuardMode;
+  /**
    * Content-type UIDs scripts may access. When set, scripts get a strapi object with only
    * documents() for these UIDs and log. Null leaves the full strapi object (upstream behaviour).
    */
@@ -29,6 +37,7 @@ export const defaultConfig: PluginConfig = {
   scratchDirectory: null,
   markdownFields: [],
   publishGuard: null,
+  publishGuardMode: 'error',
   allowedContentTypes: null,
 };
 
@@ -60,6 +69,7 @@ export const getPluginConfig = (strapi: Core.Strapi): PluginConfig => {
   const scratch = plugin.config('scratchDirectory') as unknown;
   const fields = plugin.config('markdownFields') as unknown;
   const guard = plugin.config('publishGuard') as unknown;
+  const guardMode = plugin.config('publishGuardMode') as unknown;
   const contentTypes = plugin.config('allowedContentTypes') as unknown;
   return {
     securityCheck: read('securityCheck'),
@@ -68,6 +78,8 @@ export const getPluginConfig = (strapi: Core.Strapi): PluginConfig => {
     scratchDirectory: typeof scratch === 'string' && isScratchDirectory(scratch) ? scratch : null,
     markdownFields: Array.isArray(fields) ? fields.filter(isFieldName) : [],
     publishGuard: typeof guard === 'function' ? (guard as PublishGuard) : null,
+    // Anything but an explicit 'warn' keeps the blocking default.
+    publishGuardMode: guardMode === 'warn' ? 'warn' : 'error',
     // A restriction must never silently turn into "everything": anything but null/undefined restricts.
     allowedContentTypes:
       contentTypes === null || contentTypes === undefined
@@ -113,6 +125,9 @@ export default {
     }
     if ('publishGuard' in config && config.publishGuard !== null && typeof config.publishGuard !== 'function') {
       throw new Error('strapi-plugin-secure-cron: config "publishGuard" must be a function or null');
+    }
+    if ('publishGuardMode' in config && !PUBLISH_GUARD_MODES.includes(config.publishGuardMode as PublishGuardMode)) {
+      throw new Error('strapi-plugin-secure-cron: config "publishGuardMode" must be "error" or "warn"');
     }
     if ('allowedContentTypes' in config && config.allowedContentTypes !== null) {
       const contentTypes = config.allowedContentTypes;

@@ -28,7 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import { CronJob } from '../../../types';
 import { pluginBasePath } from '../../../utils/plugin';
 import { useCronApi } from '../api/cron';
-import { BlockedJobAlert, toBlockedJob, type BlockedJob } from '../components/BlockedJobAlert';
+import { BlockedJobAlert, toBlockedJob, toWarnedJob, type BlockedJob } from '../components/BlockedJobAlert';
 import { allPluginPermissions } from '../permissions';
 import { formatUser } from '../utils/user';
 import { PageLayout } from '../components/PageLayout';
@@ -64,6 +64,7 @@ export const HomePage: React.FunctionComponent = () => {
     setBlocked(null);
     try {
       const result = await api.triggerCronJob(cronJob.documentId);
+      setBlocked(toWarnedJob(cronJob, result.contentWarnings, 'trigger'));
       setTriggerStatus(result.success ? 'success' : 'error');
     } catch (error) {
       const reason = toBlockedJob(cronJob, error);
@@ -92,14 +93,18 @@ export const HomePage: React.FunctionComponent = () => {
     const confirmation = confirm(message);
     if (!confirmation) return;
     setBlocked(null);
-    await (isPublished
-      ? api.unpublishCronJob(cronJob.documentId)
-      : api.publishCronJob(cronJob.documentId)
-    ).catch((error: Error) => {
+    try {
+      if (isPublished) {
+        await api.unpublishCronJob(cronJob.documentId);
+      } else {
+        const result = await api.publishCronJob(cronJob.documentId);
+        setBlocked(toWarnedJob(cronJob, result.contentWarnings, 'publish'));
+      }
+    } catch (error: any) {
       const reason = toBlockedJob(cronJob, error);
       if (reason) setBlocked(reason);
       else alert(error.message);
-    });
+    }
     refetch();
   }
 

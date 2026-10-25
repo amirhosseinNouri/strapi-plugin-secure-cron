@@ -43,6 +43,8 @@ export default ({ env }) => ({
       allowedContentTypes: ['api::landing.landing'],
       // Optional project check before a job is turned on or test-run.
       publishGuard: async ({ strapi, cronJob }) => [],
+      // 'error' (default) keeps a job off on guard errors; 'warn' turns it on and shows them as warnings.
+      publishGuardMode: 'error',
     },
   },
 });
@@ -62,6 +64,7 @@ Then rebuild the admin panel: `npm run build`.
 | `allowedNetworkOrigins` | `[]` | Origins scripts may call with `fetch`, `strapi.fetch` or `WebSocket`, e.g. an internal egress gateway. A literal URL on one of these origins skips the `no-network-calls` warning; any other call still needs acknowledgement. |
 | `markdownFields` | `[]` | Attribute names the site renders as markdown or HTML. Scripts may only set them to literal markup, or literal markup with run-time values wrapped in `escapeHtml()`; anything else is a `no-dynamic-markup` error. Names are matched on any object, so list only fields that really are rendered as markup. |
 | `publishGuard` | `null` | `async ({ strapi, cronJob }) => ContentFinding[]`, run when a job is turned on or test-run, after its script passes the check. Return `{ severity, message, link? }` findings; any `error` keeps the job off and is shown in the admin panel with its link. A guard that throws counts as an error. Use it for project rules the script check cannot see, such as content the job would break. |
+| `publishGuardMode` | `'error'` | How `publishGuard` errors are applied. `'error'` keeps the job off (or stops the test run). `'warn'` turns the job on (or runs it) and shows every finding as a warning in the job list, with its link; use it when the project enforces the rule elsewhere, e.g. at publish time. A guard that throws always blocks. |
 | `allowedContentTypes` | `null` | Content-type UIDs scripts may access. When set, scripts receive a `strapi` object with only `documents(uid)` for these UIDs and `log`; `strapi.db`, `entityService`, services, plugins and every other content type are unavailable at run time and are `no-unlisted-content-types` errors in the check. `[]` allows none. `null` keeps the full `strapi` object. |
 | `scratchDirectory` | `null` | Absolute directory that file paths in a script may point into. Paths elsewhere, `..` traversal and symlink calls are always `no-filesystem-access` errors. Scripts get no `fs` handle at runtime, so this only relaxes the static check. |
 

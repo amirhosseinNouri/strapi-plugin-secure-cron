@@ -5,6 +5,7 @@ import type {
   CronJob,
   CronJobInputData,
   PluginSettings,
+  PublishResult,
   SecurityCheckResult,
   TriggerResult,
 } from '../../../types';
@@ -66,7 +67,7 @@ export const useCronApi = () => {
       updateCronJob: ({ documentId, data }: { documentId: string; data: CronJobPayload }) =>
         call<CronJob>(put(`${base}/cron-jobs/${documentId}`, data)),
       publishCronJob: (documentId: string) =>
-        call<CronJob>(put(`${base}/cron-jobs/publish/${documentId}`)),
+        call<PublishResult>(put(`${base}/cron-jobs/publish/${documentId}`)),
       unpublishCronJob: (documentId: string) =>
         call<CronJob>(put(`${base}/cron-jobs/unpublish/${documentId}`)),
       deleteCronJob: (documentId: string) => call(del(`${base}/cron-jobs/${documentId}`)),

@@ -128,18 +128,28 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
     return result;
   };
 
-  /** Runs the project's publishGuard; responds with 422 and returns false when it reports errors. */
-  const vetContent = async (ctx: any, cronJob: CronJob, operation: 'publish' | 'trigger') => {
+  /**
+   * Runs the project's publishGuard. Responds with 422 and returns null when it reports
+   * errors; otherwise returns its warnings, which the caller passes back to the admin panel.
+   */
+  const vetContent = async (
+    ctx: any,
+    cronJob: CronJob,
+    operation: 'publish' | 'trigger'
+  ): Promise<ContentFinding[] | null> => {
     const findings: ContentFinding[] = await securityService().guard(cronJob);
-    if (!findings.some((finding) => finding.severity === 'error')) return true;
+    if (!findings.some((finding) => finding.severity === 'error')) return findings;
     await audit('blocked', requestContext(ctx), cronJob, {
       operation,
       reason: 'publish-guard',
       contentFindings: findings,
     });
     sendGuardError(ctx, findings, operation);
-    return false;
+    return null;
   };
+
+  const withContentWarnings = <T extends object>(body: T, warnings: ContentFinding[]) =>
+    warnings.length ? { ...body, contentWarnings: warnings } : body;
 
   const loadOr404 = async (ctx: any): Promise<CronJob | null> => {
     const cronJob = await cronJobService().getOne(ctx.params.documentId);
@@ -243,14 +253,16 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
         requireAcknowledgement: false,
       });
       if (!check) return;
-      if (!(await vetContent(ctx, existing, 'publish'))) return;
+      const warnings = await vetContent(ctx, existing, 'publish');
+      if (!warnings) return;
 
       const cronJob: CronJob = await cronJobService().publish(existing.documentId, ctx.state.user);
       await audit('publish', requestContext(ctx), cronJob, {
         scriptHash: hashScript(cronJob.script),
         scheduled: cronService().isScheduled(cronJob),
+        ...(warnings.length ? { contentWarnings: warnings } : {}),
       });
-      ctx.body = cronJob;
+      ctx.body = withContentWarnings(cronJob, warnings);
     },
 
     async unpublish(ctx: any) {
@@ -288,16 +300,20 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
         requireAcknowledgement: false,
       });
       if (!check) return;
-      if (!(await vetContent(ctx, existing, 'trigger'))) return;
+      const warnings = await vetContent(ctx, existing, 'trigger');
+      if (!warnings) return;
 
       const context = requestContext(ctx);
-      await audit('trigger', context, existing, { scriptHash: hashScript(existing.script) });
+      await audit('trigger', context, existing, {
+        scriptHash: hashScript(existing.script),
+        ...(warnings.length ? { contentWarnings: warnings } : {}),
+      });
       const result = await cronService().trigger(existing);
       await audit(result.success ? 'run.succeeded' : 'run.failed', context, existing, {
         manual: true,
         ...(result.error ? { error: result.error } : {}),
       });
-      ctx.body = result;
+      ctx.body = withContentWarnings(result, warnings);
     },
 
     async validateScript(ctx: any) {

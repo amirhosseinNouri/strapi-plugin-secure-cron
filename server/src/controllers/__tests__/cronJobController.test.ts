@@ -310,13 +310,41 @@ describe('publish / unpublish / delete', () => {
     expect(cron.trigger).not.toHaveBeenCalled();
   });
 
-  it('publishes when the publish guard only reports warnings', async () => {
-    const publishGuard = jest.fn(() => [{ severity: 'warning' as const, message: 'heads up' }]);
-    const { controller, cronJob } = setup({ publishGuard });
+  it('publishes when the publish guard only reports warnings, and returns and audits them', async () => {
+    const warnings = [{ severity: 'warning' as const, message: 'heads up' }];
+    const publishGuard = jest.fn(() => warnings);
+    const { controller, cronJob, payload } = setup({ publishGuard });
     cronJob.getOne.mockResolvedValue(existingJob());
     const ctx = createCtx({ params: { documentId: 'abc' } });
     await controller.publish(ctx);
     expect(cronJob.publish).toHaveBeenCalled();
+    expect(ctx.body.contentWarnings).toEqual(warnings);
+    expect(payload('publish').details.contentWarnings).toEqual(warnings);
+  });
+
+  it("turns errors into warnings in 'warn' mode: the job is published and a test run goes ahead", async () => {
+    const publishGuard = jest.fn(() => [{ severity: 'error' as const, message: 'food/home is misused' }]);
+    const { controller, cronJob, cron } = setup({ publishGuard, publishGuardMode: 'warn' });
+    cronJob.getOne.mockResolvedValue(existingJob());
+
+    const ctx = createCtx({ params: { documentId: 'abc' } });
+    await controller.publish(ctx);
+    expect(ctx.status).toBe(200);
+    expect(cronJob.publish).toHaveBeenCalled();
+    expect(ctx.body.contentWarnings).toEqual([{ severity: 'warning', message: 'food/home is misused' }]);
+
+    const run = createCtx({ params: { documentId: 'abc' } });
+    await controller.trigger(run);
+    expect(cron.trigger).toHaveBeenCalled();
+    expect(run.body).toMatchObject({ success: true, contentWarnings: [{ severity: 'warning' }] });
+  });
+
+  it('returns no contentWarnings field when the guard has nothing to report', async () => {
+    const { controller, cronJob } = setup({ publishGuard: () => [] });
+    cronJob.getOne.mockResolvedValue(existingJob());
+    const ctx = createCtx({ params: { documentId: 'abc' } });
+    await controller.publish(ctx);
+    expect(ctx.body).not.toHaveProperty('contentWarnings');
   });
 
   it('skips the publish guard when the script itself fails', async () => {

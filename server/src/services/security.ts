@@ -29,14 +29,19 @@ export default ({ strapi }: { strapi: Core.Strapi }) => ({
    * that throws fails closed, so a broken guard never lets a job through.
    */
   async guard(cronJob: CronJob): Promise<ContentFinding[]> {
-    const { securityCheck, publishGuard } = getPluginConfig(strapi);
+    const { securityCheck, publishGuard, publishGuardMode } = getPluginConfig(strapi);
     if (!securityCheck || !publishGuard) return [];
+    let findings: ContentFinding[];
     try {
-      const findings = await publishGuard({ strapi, cronJob });
-      return Array.isArray(findings) ? findings : [];
+      const result = await publishGuard({ strapi, cronJob });
+      findings = Array.isArray(result) ? result : [];
     } catch (error: any) {
+      // A broken guard always blocks, even in 'warn' mode: its findings are unknown.
       return [{ severity: 'error', message: `The publish guard failed: ${error?.message ?? String(error)}` }];
     }
+    return publishGuardMode === 'warn'
+      ? findings.map((finding) => ({ ...finding, severity: 'warning' as const }))
+      : findings;
   },
 
   listRules() {

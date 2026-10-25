@@ -10,6 +10,7 @@ describe('plugin config', () => {
       scratchDirectory: null,
       markdownFields: [],
       publishGuard: null,
+      publishGuardMode: 'error',
       allowedContentTypes: null,
     });
     expect(defaultConfig).toBe(config.default);
@@ -43,6 +44,16 @@ describe('plugin config', () => {
     expect(() => config.validator({ markdownFields: 'rawHtml' as any })).toThrow(/markdownFields/);
     expect(() => config.validator({ markdownFields: ['marketing.tables.rawHtml'] })).toThrow(/markdownFields/);
     expect(() => config.validator({ publishGuard: 'guard' as any })).toThrow(/publishGuard/);
+  });
+
+  it('validates publishGuardMode and keeps blocking unless it is exactly "warn"', () => {
+    expect(() => config.validator({ publishGuardMode: 'warn' })).not.toThrow();
+    expect(() => config.validator({ publishGuardMode: 'error' })).not.toThrow();
+    expect(() => config.validator({ publishGuardMode: 'warning' as any })).toThrow(/publishGuardMode/);
+    const read = (value: unknown) => getPluginConfig(createMockStrapi({ publishGuardMode: value }).strapi).publishGuardMode;
+    expect(read('warn')).toBe('warn');
+    expect(read(undefined)).toBe('error');
+    expect(read('WARN')).toBe('error');
   });
 
   it('validates allowedContentTypes', () => {
