@@ -42,13 +42,47 @@ export const createScopedConsole = (
   };
 };
 
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+/**
+ * Escapes a run-time value for use inside markdown/HTML content, so it renders as
+ * text. Passed to every script; the no-dynamic-markup rule requires it.
+ */
+export const escapeHtml = (value: unknown): string =>
+  String(value ?? '').replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
+
+/**
+ * The strapi object scripts get when allowedContentTypes is configured: documents() for
+ * those content types and log, nothing else. Enforced at run time, so renamed variables
+ * or built-up strings cannot reach strapi.db, services or other content types.
+ */
+export const createScopedStrapi = (strapi: any, allowedContentTypes: string[]) =>
+  Object.freeze({
+    documents: (uid: unknown) => {
+      if (typeof uid !== 'string' || !allowedContentTypes.includes(uid)) {
+        throw new Error(
+          `The content type "${String(uid)}" is not allowed. Allowed content types: ${allowedContentTypes.join(', ') || 'none'}.`
+        );
+      }
+      return strapi.documents(uid);
+    },
+    log: strapi.log,
+  });
+
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
   ...args: string[]
 ) => (...args: unknown[]) => Promise<unknown>;
 
 /**
  * Runs a script as the body of an async function. Scripts may `await`, or call
- * the legacy `resolve()` / `reject()` callbacks kept for backwards compatibility.
+ * the legacy `resolve()` / `reject()` callbacks kept for backwards compatibility,
+ * and use `escapeHtml()` for run-time values written to markdown fields.
  */
 export const runScript = (
   script: string,
@@ -57,12 +91,12 @@ export const runScript = (
   new Promise<void>((resolve, reject) => {
     let fn: (...args: unknown[]) => Promise<unknown>;
     try {
-      fn = new AsyncFunction('strapi', 'cronJob', 'console', 'resolve', 'reject', script);
+      fn = new AsyncFunction('strapi', 'cronJob', 'console', 'resolve', 'reject', 'escapeHtml', script);
     } catch (error) {
       reject(error);
       return;
     }
-    fn(args.strapi, args.cronJob, args.console, () => resolve(), reject).then(
+    fn(args.strapi, args.cronJob, args.console, () => resolve(), reject, escapeHtml).then(
       () => resolve(),
       reject
     );

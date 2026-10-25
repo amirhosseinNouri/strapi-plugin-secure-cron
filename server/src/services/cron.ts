@@ -3,7 +3,8 @@ import { scheduleJob, scheduledJobs } from 'node-schedule';
 import { CronJob, CronJobInputData, TriggerResult } from '../../../types';
 import { PLUGIN_ID } from '../../../utils/plugin';
 import { emitAuditEvent, SYSTEM_CONTEXT } from '../audit/events';
-import { createScopedConsole, runScript, type ScopedConsole } from '../utils';
+import { getPluginConfig } from '../config';
+import { createScopedConsole, createScopedStrapi, runScript, type ScopedConsole } from '../utils';
 import { createCronJobSchema } from './cron-job/schema';
 
 const LOG_LEVELS: Record<keyof ScopedConsole, 'info' | 'warn' | 'error' | 'debug'> = {
@@ -28,7 +29,9 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
     );
     console.log(`-- ${new Date().toLocaleString()}`);
     try {
-      await runScript(cronJob.script ?? '', { strapi, cronJob, console });
+      const { allowedContentTypes } = getPluginConfig(strapi);
+      const scriptStrapi = allowedContentTypes ? createScopedStrapi(strapi, allowedContentTypes) : strapi;
+      await runScript(cronJob.script ?? '', { strapi: scriptStrapi, cronJob, console });
       return { success: true, logs: lines };
     } catch (error: any) {
       console.error(error);

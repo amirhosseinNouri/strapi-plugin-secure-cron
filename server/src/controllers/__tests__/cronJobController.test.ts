@@ -1,6 +1,6 @@
 import { createCtx, createMockStrapi } from '../../__tests__/mock-strapi';
 import securityService from '../../services/security';
-import controllerFactory, { SECURITY_ERROR_NAME } from '../cronJobController';
+import controllerFactory, { PUBLISH_GUARD_ERROR_NAME, SECURITY_ERROR_NAME } from '../cronJobController';
 
 const tomorrow = () => new Date(Date.now() + 86400000).toISOString();
 
@@ -278,8 +278,56 @@ describe('publish / unpublish / delete', () => {
     const ctx = createCtx({ params: { documentId: 'abc' } });
     await controller.publish(ctx);
     expect(ctx.status).toBe(422);
+    expect(ctx.body.error.message).toMatch(/cannot be turned on.*Fix the errors below in the script, save it, then turn the job on again/);
     expect(cronJob.publish).not.toHaveBeenCalled();
     expect(events()).toEqual(['blocked']);
+  });
+
+  it('refuses to publish or run a job when the publish guard reports errors', async () => {
+    const contentFindings = [
+      { severity: 'error', message: 'food/home: 12 Tables blocks contain non-table HTML.', link: '/admin/x' },
+    ];
+    const publishGuard = jest.fn(async () => contentFindings);
+    const { controller, cronJob, cron, events, payload } = setup({ publishGuard });
+    cronJob.getOne.mockResolvedValue(existingJob());
+
+    const ctx = createCtx({ params: { documentId: 'abc' } });
+    await controller.publish(ctx);
+    expect(ctx.status).toBe(422);
+    expect(ctx.body.error).toMatchObject({
+      name: PUBLISH_GUARD_ERROR_NAME,
+      message: expect.stringMatching(/cannot be turned on until the content it updates is fixed/),
+      details: { contentFindings },
+    });
+    expect(cronJob.publish).not.toHaveBeenCalled();
+    expect(events()).toEqual(['blocked']);
+    expect(payload('blocked').details).toMatchObject({ operation: 'publish', reason: 'publish-guard', contentFindings });
+
+    const run = createCtx({ params: { documentId: 'abc' } });
+    await controller.trigger(run);
+    expect(run.status).toBe(422);
+    expect(run.body.error.message).toMatch(/cannot run until/);
+    expect(cron.trigger).not.toHaveBeenCalled();
+  });
+
+  it('publishes when the publish guard only reports warnings', async () => {
+    const publishGuard = jest.fn(() => [{ severity: 'warning' as const, message: 'heads up' }]);
+    const { controller, cronJob } = setup({ publishGuard });
+    cronJob.getOne.mockResolvedValue(existingJob());
+    const ctx = createCtx({ params: { documentId: 'abc' } });
+    await controller.publish(ctx);
+    expect(cronJob.publish).toHaveBeenCalled();
+  });
+
+  it('skips the publish guard when the script itself fails', async () => {
+    const publishGuard = jest.fn(() => []);
+    const { controller, cronJob } = setup({ publishGuard });
+    cronJob.getOne.mockResolvedValue(existingJob({ script: "const FEED = 'http://10.0.0.1/feed';" }));
+    const ctx = createCtx({ params: { documentId: 'abc' } });
+    await controller.publish(ctx);
+    expect(ctx.body.error.name).toBe(SECURITY_ERROR_NAME);
+    expect(ctx.body.error.details.findings[0].ruleId).toBe('no-insecure-transport');
+    expect(publishGuard).not.toHaveBeenCalled();
   });
 
   it('publishes scripts with warnings without new acknowledgement', async () => {

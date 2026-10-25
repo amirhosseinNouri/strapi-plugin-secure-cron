@@ -164,6 +164,23 @@ describe('cron service execution', () => {
     expect(cronJob.update).toHaveBeenCalledWith(a.documentId, { latestExecutionLog: result.logs });
   });
 
+  it('gives scripts the full strapi object without allowedContentTypes, and a scoped one with it', async () => {
+    const open = setup({ securityCheck: false });
+    expect(await open.service.trigger(job({ script: 'if (!strapi.eventHub) throw new Error("not the full object")' }))).toMatchObject({
+      success: true,
+    });
+
+    const scoped = setup({ securityCheck: false, allowedContentTypes: ['api::landing.landing'] });
+    expect(await scoped.service.trigger(job({ script: 'if (strapi.eventHub || strapi.db) throw new Error("internals leaked")' }))).toMatchObject({
+      success: true,
+    });
+    expect(
+      await scoped.service.trigger(job({ script: "const k = ['plugin::strapi-plugin-cron', 'cron-job'].join('.'); strapi.documents(k)" }))
+    ).toMatchObject({ success: false, error: expect.stringMatching(/is not allowed/) });
+    await scoped.service.trigger(job({ script: "strapi.documents('api::landing.landing')" }));
+    expect(scoped.strapi.documents).toHaveBeenCalledWith('api::landing.landing');
+  });
+
   it('reports failures with the error message', async () => {
     const { service, strapi } = setup();
     const result = await service.trigger(job({ script: 'throw new Error("kaput")' }));

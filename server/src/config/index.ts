@@ -1,4 +1,5 @@
 import type { Core } from '@strapi/strapi';
+import type { PublishGuard } from '../../../types';
 import { PLUGIN_ID } from '../../../utils/plugin';
 
 export type PluginConfig = {
@@ -10,6 +11,15 @@ export type PluginConfig = {
   allowedNetworkOrigins: string[];
   /** Absolute directory scripts may reference file paths in. Null denies all filesystem paths. */
   scratchDirectory: string | null;
+  /** Content attribute names rendered as markdown/HTML. Scripts may only write literal or escaped values to them. */
+  markdownFields: string[];
+  /** Project-specific check run before a job is turned on or test-run; errors keep it off. */
+  publishGuard: PublishGuard | null;
+  /**
+   * Content-type UIDs scripts may access. When set, scripts get a strapi object with only
+   * documents() for these UIDs and log. Null leaves the full strapi object (upstream behaviour).
+   */
+  allowedContentTypes: string[] | null;
 };
 
 export const defaultConfig: PluginConfig = {
@@ -17,6 +27,9 @@ export const defaultConfig: PluginConfig = {
   syntaxHighlighting: true,
   allowedNetworkOrigins: [],
   scratchDirectory: null,
+  markdownFields: [],
+  publishGuard: null,
+  allowedContentTypes: null,
 };
 
 const isOrigin = (value: unknown): boolean => {
@@ -33,6 +46,11 @@ const isScratchDirectory = (value: unknown): boolean =>
   value === null ||
   (typeof value === 'string' && value.startsWith('/') && value !== '/' && !/(?:^|\/)\.\.(?:\/|$)/.test(value));
 
+const isContentTypeUid = (value: unknown): boolean =>
+  typeof value === 'string' && /^[a-z][\w-]*::[\w-]+\.[\w-]+$/.test(value);
+
+const isFieldName = (value: unknown): boolean => typeof value === 'string' && /^[A-Za-z_$][\w$]*$/.test(value);
+
 /** Reads the resolved plugin config; anything but an explicit `false` keeps the safe default. */
 export const getPluginConfig = (strapi: Core.Strapi): PluginConfig => {
   const plugin = strapi.plugin(PLUGIN_ID);
@@ -40,11 +58,23 @@ export const getPluginConfig = (strapi: Core.Strapi): PluginConfig => {
   // Allow-lists only ever relax a check, so anything malformed falls back to "deny".
   const origins = plugin.config('allowedNetworkOrigins') as unknown;
   const scratch = plugin.config('scratchDirectory') as unknown;
+  const fields = plugin.config('markdownFields') as unknown;
+  const guard = plugin.config('publishGuard') as unknown;
+  const contentTypes = plugin.config('allowedContentTypes') as unknown;
   return {
     securityCheck: read('securityCheck'),
     syntaxHighlighting: read('syntaxHighlighting'),
     allowedNetworkOrigins: Array.isArray(origins) ? origins.filter(isOrigin) : [],
     scratchDirectory: typeof scratch === 'string' && isScratchDirectory(scratch) ? scratch : null,
+    markdownFields: Array.isArray(fields) ? fields.filter(isFieldName) : [],
+    publishGuard: typeof guard === 'function' ? (guard as PublishGuard) : null,
+    // A restriction must never silently turn into "everything": anything but null/undefined restricts.
+    allowedContentTypes:
+      contentTypes === null || contentTypes === undefined
+        ? null
+        : Array.isArray(contentTypes)
+          ? contentTypes.filter(isContentTypeUid)
+          : [],
   };
 };
 
@@ -72,6 +102,25 @@ export default {
       throw new Error(
         'strapi-plugin-secure-cron: config "scratchDirectory" must be null or an absolute directory path without ".." segments'
       );
+    }
+    if ('markdownFields' in config) {
+      const fields = config.markdownFields;
+      if (!Array.isArray(fields) || !fields.every(isFieldName)) {
+        throw new Error(
+          'strapi-plugin-secure-cron: config "markdownFields" must be an array of attribute names such as "rawHtml"'
+        );
+      }
+    }
+    if ('publishGuard' in config && config.publishGuard !== null && typeof config.publishGuard !== 'function') {
+      throw new Error('strapi-plugin-secure-cron: config "publishGuard" must be a function or null');
+    }
+    if ('allowedContentTypes' in config && config.allowedContentTypes !== null) {
+      const contentTypes = config.allowedContentTypes;
+      if (!Array.isArray(contentTypes) || !contentTypes.every(isContentTypeUid)) {
+        throw new Error(
+          'strapi-plugin-secure-cron: config "allowedContentTypes" must be null or an array of content-type UIDs such as "api::landing.landing"'
+        );
+      }
     }
     if ('enforceAuth' in config) {
       throw new Error(

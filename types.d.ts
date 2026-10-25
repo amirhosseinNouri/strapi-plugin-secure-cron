@@ -54,6 +54,23 @@ export type SecurityCheckResult = {
   findings: SecurityFinding[];
 };
 
+/** A problem found by the project's publishGuard, e.g. content the job would break. */
+export type ContentFinding = {
+  severity: SecuritySeverity;
+  message: string;
+  /** Admin-panel path where the problem can be fixed, e.g. a Content Manager entry. */
+  link?: string;
+};
+
+/**
+ * Project-specific check run before a cron job is turned on or test-run. Return
+ * findings; any `error` keeps the job off. A thrown error counts as a failure.
+ */
+export type PublishGuard = (args: {
+  strapi: unknown;
+  cronJob: CronJob;
+}) => ContentFinding[] | Promise<ContentFinding[]>;
+
 export type PluginSettings = {
   securityCheck: boolean;
   syntaxHighlighting: boolean;

@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased: markdown safety
+
+### Security
+
+- New error rules:
+  - `no-insecure-transport`: `http://` / `ws://` URLs, including in markup. `allowedNetworkOrigins` does not exempt them.
+  - `no-unsafe-markup`: strings containing `<script>`, `<style>`, frames, `<object>`/`<embed>`, `<link>`, `<meta>`,
+    `<base>`, forms and inputs, `on*` handlers, `style` attributes, or `javascript:`/`vbscript:`/`data:text/html` URLs.
+  - `no-dynamic-markup`: fields listed in the new `markdownFields` config only accept literal markup, or markup with
+    run-time values wrapped in `escapeHtml()`. Redefining `escapeHtml` is also an error.
+  - `no-unlisted-content-types`: with the new `allowedContentTypes` config, only `strapi.documents('<listed uid>')`
+    and `strapi.log` are allowed; `strapi.db`, `entityService`, services, plugins, computed UIDs and aliasing `strapi`
+    are errors.
+- With `allowedContentTypes` set, scripts run with a scoped `strapi` object (`documents()` for listed UIDs, `log`),
+  so the restriction holds at run time too.
+- New `publishGuard` config hook runs a project check when a job is turned on or test-run. Any error keeps the job
+  off, is audited as `blocked` with `reason: 'publish-guard'`, and fails closed if the guard throws.
+
+### Added
+
+- Scripts get an `escapeHtml(value)` helper.
+- Turning a job on (or test-running it) when its script or content fails now shows the findings in the job list,
+  with "fix the errors, save, then turn the job on again" and a link to the script or the content to fix.
+
 ## Unreleased
 
 ### Security

@@ -37,6 +37,12 @@ export default ({ env }) => ({
       // Optional allow-lists; both default to deny-all.
       allowedNetworkOrigins: ['https://egress-gateway.internal'],
       scratchDirectory: '/srv/cron-scratch',
+      // Attributes the site renders as markdown/HTML (see no-dynamic-markup).
+      markdownFields: ['rawHtml', 'description'],
+      // Content types scripts may use; they then get only strapi.documents() and strapi.log.
+      allowedContentTypes: ['api::landing.landing'],
+      // Optional project check before a job is turned on or test-run.
+      publishGuard: async ({ strapi, cronJob }) => [],
     },
   },
 });
@@ -54,6 +60,9 @@ Then rebuild the admin panel: `npm run build`.
 | `securityCheck` | `true` | Run the script security check. When `false`, scripts are neither checked nor blocked. |
 | `syntaxHighlighting` | `true` | Use the CodeMirror editor. When `false`, a plain monospace textarea is used (full screen still works). |
 | `allowedNetworkOrigins` | `[]` | Origins scripts may call with `fetch`, `strapi.fetch` or `WebSocket`, e.g. an internal egress gateway. A literal URL on one of these origins skips the `no-network-calls` warning; any other call still needs acknowledgement. |
+| `markdownFields` | `[]` | Attribute names the site renders as markdown or HTML. Scripts may only set them to literal markup, or literal markup with run-time values wrapped in `escapeHtml()`; anything else is a `no-dynamic-markup` error. Names are matched on any object, so list only fields that really are rendered as markup. |
+| `publishGuard` | `null` | `async ({ strapi, cronJob }) => ContentFinding[]`, run when a job is turned on or test-run, after its script passes the check. Return `{ severity, message, link? }` findings; any `error` keeps the job off and is shown in the admin panel with its link. A guard that throws counts as an error. Use it for project rules the script check cannot see, such as content the job would break. |
+| `allowedContentTypes` | `null` | Content-type UIDs scripts may access. When set, scripts receive a `strapi` object with only `documents(uid)` for these UIDs and `log`; `strapi.db`, `entityService`, services, plugins and every other content type are unavailable at run time and are `no-unlisted-content-types` errors in the check. `[]` allows none. `null` keeps the full `strapi` object. |
 | `scratchDirectory` | `null` | Absolute directory that file paths in a script may point into. Paths elsewhere, `..` traversal and symlink calls are always `no-filesystem-access` errors. Scripts get no `fs` handle at runtime, so this only relaxes the static check. |
 
 Authentication cannot be configured. A config containing `enforceAuth` is rejected at startup.
@@ -75,9 +84,19 @@ panel → Roles → (role) → Plugins → Cron*:
 
 A script is the body of an **async function** with three variables in scope:
 
-- `strapi`: the Strapi instance
+- `strapi`: the Strapi instance, or only `strapi.documents(uid)` and `strapi.log` when `allowedContentTypes` is set
 - `cronJob`: the job being run (name, iteration counters, …)
 - `console`: a console scoped to this run. Its output becomes the job's *latest execution log*.
+- `escapeHtml(value)`: escapes a run-time value so it renders as text inside markup. Values written to
+  `markdownFields` must use it:
+
+```js
+// Allowed: literal markup with escaped values, or editing the stored markup.
+data: { rawHtml: `<table><tr><td>${escapeHtml(price)}</td></tr></table>` }
+data: { rawHtml: component.rawHtml.replace('{{price}}', escapeHtml(price)) }
+// Error: markup from a feed cannot be checked before it is published.
+data: { rawHtml: feed.blocks[id] }
+```
 
 ```js
 const drafts = await strapi.documents('api::article.article').findMany({
@@ -95,7 +114,9 @@ security check and allowed path traversal. Paste the script into the editor inst
 
 Every script goes through a static security check. Findings come in two levels:
 
-- **⛔ error**: the script cannot be saved, published, scheduled or triggered.
+- **⛔ error**: the script cannot be saved, published, scheduled or triggered. Turning a job on or
+  test-running it re-runs the check, so a job saved before a rule was added stays off until its script
+  is fixed and saved.
 - **⚠️ warning**: the script can be saved only after ticking *"I reviewed the security warnings"*.
   The acknowledgement is recorded as an audit event. Unchanged scripts don't need to be acknowledged again.
 
@@ -118,6 +139,10 @@ Every script goes through a static security check. Findings come in two levels:
 | `no-raw-database` | ⛔ error | Raw database access is not allowed. strapi.db.connection (knex) and .raw() run arbitrary SQL, bypassing Strapi validation and access control, and can read admin users, tokens and secrets. Use strapi.documents() instead. |
 | `no-strapi-internals` | ⛔ error | Accessing sensitive strapi internals is not allowed. Cron scripts should work with content through strapi.documents(). Configuration, server lifecycle and container internals expose secrets or can take the server down. |
 | `no-sensitive-services` | ⛔ error | Accessing admin or users-permissions internals is not allowed. Admin users, roles, API tokens and users-permissions accounts control who can access the CMS. A cron script that can read or change them is an account-takeover risk. |
+| `no-insecure-transport` | ⛔ error | Plain-HTTP URLs are not allowed. Content fetched over http:// or ws:// can be read and replaced by anyone on the network path, so a script that publishes it lets them inject content into the site. Use https:// (wss:// for WebSockets). allowedNetworkOrigins does not exempt plain-HTTP origins. |
+| `no-unsafe-markup` | ⛔ error | The script contains markup that is not allowed in content. Content fields such as markdown and raw HTML are rendered into the public site. Scripts, styles, frames, forms, meta/link/base tags, event handlers, style attributes and javascript: URLs inject code, change other parts of the page or collect user input. Write plain content markup only. |
+| `no-dynamic-markup` | ⛔ error | Markdown fields may only receive literal content or escaped run-time values. Fields listed in markdownFields are rendered as HTML on the site. A value computed at run time, such as HTML from a feed, cannot be checked before it is published. Write literal markup and wrap every run-time value (prices, names) in escapeHtml(...), which the runner provides, e.g. `<td>${escapeHtml(price)}</td>`, or rawHtml.replace(old, escapeHtml(price)). |
+| `no-unlisted-content-types` | ⛔ error | Scripts may only use strapi.documents() on the content types listed in allowedContentTypes. When allowedContentTypes is configured, scripts receive a strapi object with only documents() for those content types and log. strapi.db.query, entityService, services, plugins and other content types reach data the job must not touch, such as other cron jobs and their secrets, and skip draft/publish handling. Name the content type as a literal, e.g. strapi.documents('api::landing.landing'). |
 | `no-obfuscation` | ⚠️ warning | The script contains patterns commonly used to hide code. Encoded payloads, heavy escape sequences and character-code assembly hide what a script really does from reviewers and from this check. Keep scripts readable; store large data in content types instead. |
 | `no-dynamic-property-access` | ⚠️ warning | Computed property access on strapi or globals cannot be checked. strapi[name] or globalThis[name] lets a script reach any internal at runtime, so the static check cannot tell what it touches. Use literal property names. |
 | `no-infinite-loops` | ⚠️ warning | The script contains a loop that never exits. Scripts run inside the Strapi server process. A loop without an exit blocks the event loop and freezes the whole CMS. |

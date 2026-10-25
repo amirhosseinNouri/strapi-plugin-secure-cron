@@ -16,6 +16,10 @@ export type CheckOptions = {
   allowedNetworkOrigins?: string[];
   /** Absolute directory that file paths in a script may point into. */
   scratchDirectory?: string | null;
+  /** Content attribute names rendered as markdown/HTML; see the no-dynamic-markup rule. */
+  markdownFields?: string[];
+  /** Content-type UIDs scripts may use through strapi.documents(); null leaves access unrestricted. */
+  allowedContentTypes?: string[] | null;
 };
 
 export type RuleContext = {

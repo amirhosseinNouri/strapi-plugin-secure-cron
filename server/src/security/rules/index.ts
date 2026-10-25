@@ -4,11 +4,13 @@ import { noChildProcess } from './no-child-process';
 import { noCodeEvaluation } from './no-code-evaluation';
 import { noDangerousModules } from './no-dangerous-modules';
 import { noDeprecatedApis } from './no-deprecated-apis';
+import { noDynamicMarkup } from './no-dynamic-markup';
 import { noDynamicModuleLoading } from './no-dynamic-module-loading';
 import { noDynamicPropertyAccess } from './no-dynamic-property-access';
 import { noFilesystemAccess } from './no-filesystem-access';
 import { noGlobalTampering } from './no-global-tampering';
 import { noInfiniteLoops } from './no-infinite-loops';
+import { noInsecureTransport } from './no-insecure-transport';
 import { noNativeModules } from './no-native-modules';
 import { noNetworkCalls } from './no-network-calls';
 import { noObfuscation } from './no-obfuscation';
@@ -18,6 +20,8 @@ import { noRawDatabase } from './no-raw-database';
 import { noSelfModification } from './no-self-modification';
 import { noSensitiveServices } from './no-sensitive-services';
 import { noStrapiInternals } from './no-strapi-internals';
+import { noUnlistedContentTypes } from './no-unlisted-content-types';
+import { noUnsafeMarkup } from './no-unsafe-markup';
 
 /**
  * The rule registry. To add a rule, create a file next to this one exporting a
@@ -38,6 +42,10 @@ export const rules: SecurityRule[] = [
   noRawDatabase,
   noStrapiInternals,
   noSensitiveServices,
+  noInsecureTransport,
+  noUnsafeMarkup,
+  noDynamicMarkup,
+  noUnlistedContentTypes,
   // warnings: require acknowledgement
   noObfuscation,
   noDynamicPropertyAccess,

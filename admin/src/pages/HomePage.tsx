@@ -28,6 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import { CronJob } from '../../../types';
 import { pluginBasePath } from '../../../utils/plugin';
 import { useCronApi } from '../api/cron';
+import { BlockedJobAlert, toBlockedJob, type BlockedJob } from '../components/BlockedJobAlert';
 import { allPluginPermissions } from '../permissions';
 import { formatUser } from '../utils/user';
 import { PageLayout } from '../components/PageLayout';
@@ -43,6 +44,7 @@ export const HomePage: React.FunctionComponent = () => {
     'name'
   );
   const [triggerStatus, setTriggerStatus] = useState<null | 'error' | 'success'>(null);
+  const [blocked, setBlocked] = useState<BlockedJob | null>(null);
   const {
     isPending,
     data: cronJobs,
@@ -59,10 +61,13 @@ export const HomePage: React.FunctionComponent = () => {
   });
 
   async function handleTriggerClick(cronJob: CronJob) {
+    setBlocked(null);
     try {
       const result = await api.triggerCronJob(cronJob.documentId);
       setTriggerStatus(result.success ? 'success' : 'error');
-    } catch (e) {
+    } catch (error) {
+      const reason = toBlockedJob(cronJob, error);
+      if (reason) setBlocked(reason);
       setTriggerStatus('error');
     } finally {
       setTimeout(() => setTriggerStatus(null), 2000);
@@ -86,10 +91,15 @@ export const HomePage: React.FunctionComponent = () => {
       : 'This action will publish the cron job';
     const confirmation = confirm(message);
     if (!confirmation) return;
+    setBlocked(null);
     await (isPublished
       ? api.unpublishCronJob(cronJob.documentId)
       : api.publishCronJob(cronJob.documentId)
-    ).catch((error: Error) => alert(error.message));
+    ).catch((error: Error) => {
+      const reason = toBlockedJob(cronJob, error);
+      if (reason) setBlocked(reason);
+      else alert(error.message);
+    });
     refetch();
   }
 
@@ -155,6 +165,13 @@ export const HomePage: React.FunctionComponent = () => {
     <PageLayout title="Cron Jobs">
       {triggerStatus && (
         <TriggerAlert triggerStatus={triggerStatus} onClose={() => setTriggerStatus(null)} />
+      )}
+      {blocked && (
+        <BlockedJobAlert
+          blocked={blocked}
+          onEdit={canUpdate ? () => handleEditClick(blocked.cronJob) : undefined}
+          onClose={() => setBlocked(null)}
+        />
       )}
       <Box marginBottom={8}>
         <Table

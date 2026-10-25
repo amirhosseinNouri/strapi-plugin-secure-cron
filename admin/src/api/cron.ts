@@ -1,6 +1,7 @@
 import { useFetchClient } from '@strapi/strapi/admin';
 import { useMemo } from 'react';
 import type {
+  ContentFinding,
   CronJob,
   CronJobInputData,
   PluginSettings,
@@ -13,6 +14,7 @@ export type ApiErrorDetails = {
   errors?: Array<{ path: string[]; message: string }>;
   requiresAcknowledgement?: boolean;
   findings?: SecurityCheckResult['findings'];
+  contentFindings?: ContentFinding[];
   [key: string]: unknown;
 };
 

@@ -1,4 +1,4 @@
-import { createScopedConsole, runScript } from '../utils';
+import { createScopedConsole, createScopedStrapi, escapeHtml, runScript } from '../utils';
 
 describe('createScopedConsole', () => {
   it('collects lines per level and forwards them', () => {
@@ -38,6 +38,36 @@ describe('createScopedConsole', () => {
   });
 });
 
+describe('escapeHtml', () => {
+  it('escapes markup characters so values render as text', () => {
+    expect(escapeHtml('<script>"x" & \'y\'</script>')).toBe('&lt;script&gt;&quot;x&quot; &amp; &#39;y&#39;&lt;/script&gt;');
+    expect(escapeHtml(1200)).toBe('1200');
+    expect(escapeHtml(null)).toBe('');
+    expect(escapeHtml(undefined)).toBe('');
+  });
+});
+
+describe('createScopedStrapi', () => {
+  const strapi = { documents: jest.fn(() => 'landing-api'), db: { query: jest.fn() }, log: { info: jest.fn() } };
+
+  it('exposes only documents() for allowed content types and log', () => {
+    const scoped: any = createScopedStrapi(strapi, ['api::landing.landing']);
+    expect(scoped.documents('api::landing.landing')).toBe('landing-api');
+    expect(scoped.log).toBe(strapi.log);
+    expect(Object.keys(scoped).sort()).toEqual(['documents', 'log']);
+    expect(scoped.db).toBeUndefined();
+    expect(Object.isFrozen(scoped)).toBe(true);
+  });
+
+  it('throws for any other content type', () => {
+    const scoped: any = createScopedStrapi(strapi, ['api::landing.landing']);
+    expect(() => scoped.documents('plugin::strapi-plugin-cron.cron-job')).toThrow(
+      'The content type "plugin::strapi-plugin-cron.cron-job" is not allowed. Allowed content types: api::landing.landing.'
+    );
+    expect(() => createScopedStrapi(strapi, []).documents('api::landing.landing')).toThrow(/Allowed content types: none/);
+  });
+});
+
 describe('runScript', () => {
   const args = () => {
     const scoped = createScopedConsole();
@@ -48,6 +78,12 @@ describe('runScript', () => {
     const { scoped, args: a } = args();
     await runScript('console.log(strapi.name, cronJob.name)', a);
     expect(scoped.lines).toEqual([['strapi', 'job']]);
+  });
+
+  it('gives scripts the escapeHtml helper', async () => {
+    const { scoped, args: a } = args();
+    await runScript('console.log(escapeHtml("<b>"))', a);
+    expect(scoped.lines).toEqual([['&lt;b&gt;']]);
   });
 
   it('supports await', async () => {

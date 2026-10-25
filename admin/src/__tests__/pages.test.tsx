@@ -123,13 +123,84 @@ describe('HomePage', () => {
     });
     expect(fetchClient.put).toHaveBeenCalledWith('/strapi-plugin-cron/cron-jobs/publish/doc-1');
 
+    fetchClient.put.mockRejectedValueOnce({ message: 'Network down' });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch'));
+    });
+    expect(window.alert).toHaveBeenCalledWith('Network down');
+  });
+
+  it('explains script errors that keep a job off and links to the editor', async () => {
+    setupApi();
+    (window.alert as jest.Mock).mockClear();
+    renderWithProviders(<HomePage />);
+    await screen.findByText('Nightly cleanup');
     fetchClient.put.mockRejectedValueOnce({
-      response: { data: { error: { name: 'SecurityCheckError', message: 'The script failed the security check.' } } },
+      response: {
+        data: {
+          error: {
+            name: 'SecurityCheckError',
+            message: 'This cron job cannot be turned on because its script fails the security check.',
+            details: {
+              findings: [
+                {
+                  ruleId: 'no-insecure-transport',
+                  severity: 'error',
+                  message: 'The plain-HTTP URL "http://x" is not allowed.',
+                  line: 1,
+                  column: 14,
+                  endLine: 1,
+                  endColumn: 24,
+                },
+              ],
+            },
+          },
+        },
+      },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('switch'));
     });
-    expect(window.alert).toHaveBeenCalledWith('The script failed the security check.');
+    expect(window.alert).not.toHaveBeenCalled();
+    expect(screen.getByText('"Nightly cleanup" was not turned on')).toBeInTheDocument();
+    expect(screen.getByText(/cannot be turned on because its script fails/)).toBeInTheDocument();
+    expect(screen.getByText(/Line 1:14 — The plain-HTTP URL/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit script' })).toBeInTheDocument();
+  });
+
+  it('lists content the publish guard found and can be dismissed', async () => {
+    setupApi();
+    renderWithProviders(<HomePage />);
+    await screen.findByText('Nightly cleanup');
+    fetchClient.put.mockRejectedValueOnce({
+      response: {
+        data: {
+          error: {
+            name: 'PublishGuardError',
+            message: 'This cron job cannot be turned on until the content it updates is fixed.',
+            details: {
+              contentFindings: [
+                {
+                  severity: 'error',
+                  message: 'food/home (published): 12 Tables blocks contain non-table HTML.',
+                  link: '/admin/content-manager/collection-types/api::landing.landing/abc',
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('switch'));
+    });
+    expect(screen.getByText(/12 Tables blocks contain non-table HTML/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Open/ })).toHaveAttribute(
+      'href',
+      '/admin/content-manager/collection-types/api::landing.landing/abc'
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+    expect(screen.queryByTestId('blocked-job')).not.toBeInTheDocument();
   });
 
   it('unpublishes published jobs', async () => {

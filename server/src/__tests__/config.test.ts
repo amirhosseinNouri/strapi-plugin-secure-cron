@@ -8,6 +8,9 @@ describe('plugin config', () => {
       syntaxHighlighting: true,
       allowedNetworkOrigins: [],
       scratchDirectory: null,
+      markdownFields: [],
+      publishGuard: null,
+      allowedContentTypes: null,
     });
     expect(defaultConfig).toBe(config.default);
   });
@@ -34,6 +37,30 @@ describe('plugin config', () => {
     expect(() => config.validator({ scratchDirectory: '/srv/../etc' })).toThrow(/scratchDirectory/);
   });
 
+  it('validates markdownFields and publishGuard', () => {
+    expect(() => config.validator({ markdownFields: ['rawHtml', 'description'], publishGuard: () => [] })).not.toThrow();
+    expect(() => config.validator({ publishGuard: null })).not.toThrow();
+    expect(() => config.validator({ markdownFields: 'rawHtml' as any })).toThrow(/markdownFields/);
+    expect(() => config.validator({ markdownFields: ['marketing.tables.rawHtml'] })).toThrow(/markdownFields/);
+    expect(() => config.validator({ publishGuard: 'guard' as any })).toThrow(/publishGuard/);
+  });
+
+  it('validates allowedContentTypes', () => {
+    expect(() => config.validator({ allowedContentTypes: ['api::landing.landing', 'plugin::upload.file'] })).not.toThrow();
+    expect(() => config.validator({ allowedContentTypes: null })).not.toThrow();
+    expect(() => config.validator({ allowedContentTypes: [] })).not.toThrow();
+    expect(() => config.validator({ allowedContentTypes: 'api::landing.landing' as any })).toThrow(/allowedContentTypes/);
+    expect(() => config.validator({ allowedContentTypes: ['landing'] })).toThrow(/allowedContentTypes/);
+  });
+
+  it('never widens a malformed content-type restriction', () => {
+    const read = (value: unknown) => getPluginConfig(createMockStrapi({ allowedContentTypes: value }).strapi).allowedContentTypes;
+    expect(read(undefined)).toBeNull();
+    expect(read(null)).toBeNull();
+    expect(read(['api::landing.landing', 'nope', 3])).toEqual(['api::landing.landing']);
+    expect(read('api::landing.landing')).toEqual([]);
+  });
+
   it('rejects any attempt to configure auth', () => {
     expect(() => config.validator({ enforceAuth: false } as any)).toThrow(/always required/);
   });
@@ -55,5 +82,8 @@ describe('plugin config', () => {
     expect(read({ allowedNetworkOrigins: 'https://x' }).allowedNetworkOrigins).toEqual([]);
     expect(read({ scratchDirectory: '/srv/scratch' }).scratchDirectory).toBe('/srv/scratch');
     expect(read({ scratchDirectory: '../x' }).scratchDirectory).toBeNull();
+    expect(read({ markdownFields: ['rawHtml', 'a.b', 3] }).markdownFields).toEqual(['rawHtml']);
+    expect(read({ markdownFields: 'rawHtml' }).markdownFields).toEqual([]);
+    expect(read({ publishGuard: 'x' }).publishGuard).toBeNull();
   });
 });

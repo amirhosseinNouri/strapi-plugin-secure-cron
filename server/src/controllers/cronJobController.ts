@@ -1,5 +1,5 @@
 import { Core } from '@strapi/strapi';
-import type { CronJob, CronJobInputData, SecurityCheckResult } from '../../../types';
+import type { ContentFinding, CronJob, CronJobInputData, SecurityCheckResult } from '../../../types';
 import { PLUGIN_ID } from '../../../utils/plugin';
 import {
   emitAuditEvent,
@@ -20,11 +20,22 @@ const EDITABLE_FIELDS: Array<keyof CronJobInputData> = [
 ];
 
 export const SECURITY_ERROR_NAME = 'SecurityCheckError';
+export const PUBLISH_GUARD_ERROR_NAME = 'PublishGuardError';
+
+type Operation = 'create' | 'update' | 'publish' | 'trigger';
+
+const FIX_AND_RETRY: Partial<Record<Operation, string>> = {
+  publish:
+    'This cron job cannot be turned on because its script fails the security check. Fix the errors below in the script, save it, then turn the job on again.',
+  trigger:
+    'This cron job cannot run because its script fails the security check. Fix the errors below in the script, save it, then run it again.',
+};
 
 const sendSecurityError = (
   ctx: any,
   result: SecurityCheckResult,
-  requiresAcknowledgement: boolean
+  requiresAcknowledgement: boolean,
+  operation: Operation
 ) => {
   ctx.status = 422;
   ctx.body = {
@@ -34,13 +45,33 @@ const sendSecurityError = (
       name: SECURITY_ERROR_NAME,
       message: requiresAcknowledgement
         ? 'The script has security warnings that must be acknowledged before saving.'
-        : 'The script failed the security check.',
+        : (FIX_AND_RETRY[operation] ?? 'The script failed the security check.'),
       details: {
         requiresAcknowledgement,
         errors: result.errors,
         warnings: result.warnings,
         findings: result.findings,
       },
+    },
+  };
+};
+
+const GUARD_MESSAGES: Record<'publish' | 'trigger', string> = {
+  publish:
+    'This cron job cannot be turned on until the content it updates is fixed. Resolve the issues below, save the content or the script, then turn the job on again.',
+  trigger:
+    'This cron job cannot run until the content it updates is fixed. Resolve the issues below, save the content or the script, then run it again.',
+};
+
+const sendGuardError = (ctx: any, findings: ContentFinding[], operation: 'publish' | 'trigger') => {
+  ctx.status = 422;
+  ctx.body = {
+    data: null,
+    error: {
+      status: 422,
+      name: PUBLISH_GUARD_ERROR_NAME,
+      message: GUARD_MESSAGES[operation],
+      details: { contentFindings: findings },
     },
   };
 };
@@ -71,7 +102,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
       requireAcknowledgement,
     }: {
       script: string | null | undefined;
-      operation: 'create' | 'update' | 'publish' | 'trigger';
+      operation: Operation;
       cronJob: Partial<CronJob> | null;
       requireAcknowledgement: boolean;
     }
@@ -85,16 +116,29 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
         scriptHash: hashScript(script),
         findings: result.findings,
       });
-      sendSecurityError(ctx, result, false);
+      sendSecurityError(ctx, result, false, operation);
       return null;
     }
 
     const acknowledged = ctx.request.body?.acknowledgeWarnings === true;
     if (requireAcknowledgement && result.warnings > 0 && !acknowledged) {
-      sendSecurityError(ctx, result, true);
+      sendSecurityError(ctx, result, true, operation);
       return null;
     }
     return result;
+  };
+
+  /** Runs the project's publishGuard; responds with 422 and returns false when it reports errors. */
+  const vetContent = async (ctx: any, cronJob: CronJob, operation: 'publish' | 'trigger') => {
+    const findings: ContentFinding[] = await securityService().guard(cronJob);
+    if (!findings.some((finding) => finding.severity === 'error')) return true;
+    await audit('blocked', requestContext(ctx), cronJob, {
+      operation,
+      reason: 'publish-guard',
+      contentFindings: findings,
+    });
+    sendGuardError(ctx, findings, operation);
+    return false;
   };
 
   const loadOr404 = async (ctx: any): Promise<CronJob | null> => {
@@ -199,6 +243,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
         requireAcknowledgement: false,
       });
       if (!check) return;
+      if (!(await vetContent(ctx, existing, 'publish'))) return;
 
       const cronJob: CronJob = await cronJobService().publish(existing.documentId, ctx.state.user);
       await audit('publish', requestContext(ctx), cronJob, {
@@ -243,6 +288,7 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
         requireAcknowledgement: false,
       });
       if (!check) return;
+      if (!(await vetContent(ctx, existing, 'trigger'))) return;
 
       const context = requestContext(ctx);
       await audit('trigger', context, existing, { scriptHash: hashScript(existing.script) });

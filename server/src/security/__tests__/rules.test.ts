@@ -1,10 +1,115 @@
 import { checkScript } from '../engine';
 import { rules } from '../rules';
+import type { CheckOptions } from '../types';
 
-const ruleIds = (source: string) => checkScript(source).findings.map((finding) => finding.ruleId);
+const ruleIds = (source: string, options?: CheckOptions) =>
+  checkScript(source, undefined, options).findings.map((finding) => finding.ruleId);
+
+const markdownOptions: CheckOptions = { markdownFields: ['rawHtml', 'description'] };
 
 /** For every rule: scripts that must trigger it and scripts that must not. */
-const cases: Record<string, { bad: string[]; good: string[] }> = {
+const cases: Record<string, { bad: string[]; good: string[]; options?: CheckOptions }> = {
+  'no-insecure-transport': {
+    bad: [
+      "const FEED = 'http://37.32.12.50/v1/blocks.json';",
+      "await fetch('http://feed.example.com/x')",
+      'const url = `http://${host}/feed`;',
+      "new WebSocket('ws://feed.example.com')",
+      "const u = '  HTTP://EXAMPLE.COM';",
+      "const html = '<img src=\"http://cdn.example.com/a.png\">';",
+      "const html = '<a href=http://example.com>x</a>';",
+    ],
+    good: [
+      "await fetch('https://feed.example.com/x')",
+      "new WebSocket('wss://feed.example.com')",
+      "const svg = '<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>';",
+      "const ns = 'http://www.w3.org/1999/xhtml';",
+      "const text = 'see http docs';",
+    ],
+  },
+  'no-unsafe-markup': {
+    bad: [
+      "const html = '<script>alert(1)</script>';",
+      "const html = '<div><style>main{display:none}</style></div>';",
+      'const html = `<iframe src="https://x"></iframe>`;',
+      "const html = '<SCRIPT src=x>';",
+      "const html = '< object data=x>';",
+      "const html = '<link rel=stylesheet href=https://x>';",
+      "const html = '<meta http-equiv=refresh content=0>';",
+      "const html = '<base href=https://x>';",
+      "const html = '<form action=https://x><input name=q></form>';",
+      "const html = '<img src=x onerror=alert(1)>';",
+      "const html = '<div style=\"color:red\">x</div>';",
+      "const html = '<a href=\"javascript:alert(1)\">x</a>';",
+      "const url = 'data:text/html,<b>x</b>';",
+      "const html = '\\u003cscript>';",
+    ],
+    good: [
+      "const html = '<table><tr><td>1</td></tr></table>';",
+      "const html = '<p class=\"lead\">Hello <strong>world</strong></p>';",
+      "const text = 'description of the style guide';",
+      "const html = '<a href=\"https://snapp.ir\" rel=\"noopener\">x</a>';",
+      "const html = '<scripture>';",
+      'const pattern = /<script/i;',
+    ],
+  },
+  'no-unlisted-content-types': {
+    options: { allowedContentTypes: ['api::landing.landing'] },
+    bad: [
+      "await strapi.db.query('api::landing.landing').findMany()",
+      "await strapi.db.query('plugin::strapi-plugin-cron.cron-job').findMany({ select: ['script'] })",
+      "await strapi.documents('plugin::upload.file').findMany()",
+      "await strapi.documents('admin::user').findMany()",
+      'await strapi.documents(uid).findMany()',
+      "await strapi.documents(`api::${name}.${name}`).findMany()",
+      "await strapi.entityService.findMany('api::landing.landing')",
+      "strapi.service('api::landing.landing').find()",
+      "strapi.plugin('upload').service('upload')",
+      'strapi.config.get("server")',
+      "strapi['d' + 'b'].query('x')",
+      'const docs = strapi.documents;',
+      'const s = strapi;',
+      'helper(strapi);',
+      'const deps = { strapi };',
+      'const { db } = strapi;',
+    ],
+    good: [
+      "await strapi.documents('api::landing.landing').findMany({ filters: { domain: 'food' } })",
+      "await strapi.documents('api::landing.landing').update({ documentId: 'a', data: {} })",
+      "await strapi.documents(\"api::landing.landing\").publish({ documentId: 'a' })",
+      "strapi.log.info('done')",
+      'const strapiLike = 1;',
+    ],
+  },
+  'no-dynamic-markup': {
+    options: markdownOptions,
+    bad: [
+      'await strapi.documents("api::landing.landing").update({ documentId, data: { rawHtml: feed.blocks[id] } });',
+      'const c2 = Object.assign({}, c, { rawHtml: html });',
+      'const c2 = { ...c, rawHtml };',
+      'component.rawHtml = html;',
+      'component.rawHtml += html;',
+      "const c2 = { 'rawHtml': html };",
+      'const c2 = { rawHtml: `<td>${price}</td>` };',
+      "const c2 = { rawHtml: '<td>' + price + '</td>' };",
+      'const c2 = { description: c.rawHtml.replace(old, price) };',
+      'const c2 = { rawHtml: feed.html.slice(0) };',
+      'const escapeHtml = (s) => s;',
+      'function escapeHtml(s) { return s; }',
+      'const f = (escapeHtml) => escapeHtml;',
+      'escapeHtml = (s) => s;',
+    ],
+    good: [
+      "const c2 = { rawHtml: '<table><tr><td>1</td></tr></table>' };",
+      'const c2 = { rawHtml: `<td>${escapeHtml(price)}</td>` };',
+      "const c2 = { rawHtml: '<td>' + escapeHtml(price) + '</td>' };",
+      'const c2 = { rawHtml: c.rawHtml.replace(/\\d+/, escapeHtml(price)) };',
+      "const c2 = { rawHtml: String(c.rawHtml || '').replaceAll('{{price}}', escapeHtml(price)) };",
+      'const c2 = { rawHtml: ok ? `<b>${escapeHtml(a)}</b>` : null };',
+      'const c2 = { ...c, price: feed.price, title: feed.title };',
+      'component.price = feed.price;',
+    ],
+  },
   'no-child-process': {
     bad: [
       "const cp = require('child_process');",
@@ -303,20 +408,40 @@ describe('security rules', () => {
 
   for (const rule of rules) {
     describe(rule.id, () => {
-      const { bad, good } = cases[rule.id] ?? { bad: [], good: [] };
+      const { bad, good, options } = cases[rule.id] ?? { bad: [], good: [] };
 
       it.each(bad)('flags: %s', (source) => {
-        const result = checkScript(source);
+        const result = checkScript(source, undefined, options);
         const findings = result.findings.filter((finding) => finding.ruleId === rule.id);
         expect(findings.length).toBeGreaterThan(0);
         expect(findings.every((finding) => finding.severity === rule.severity)).toBe(true);
       });
 
       it.each(good)('allows: %s', (source) => {
-        expect(ruleIds(source)).not.toContain(rule.id);
+        expect(ruleIds(source, options)).not.toContain(rule.id);
       });
     });
   }
+});
+
+describe('no-unlisted-content-types without allowedContentTypes', () => {
+  it('does nothing until a list is configured, and denies everything with an empty list', () => {
+    const script = "await strapi.db.query('plugin::upload.file').findMany()";
+    expect(ruleIds(script)).not.toContain('no-unlisted-content-types');
+    const empty = checkScript("await strapi.documents('api::landing.landing').findMany()", undefined, {
+      allowedContentTypes: [],
+    });
+    expect(empty.findings[0]).toMatchObject({
+      ruleId: 'no-unlisted-content-types',
+      message: expect.stringContaining('Allowed content types: none'),
+    });
+  });
+});
+
+describe('no-dynamic-markup without markdownFields', () => {
+  it('does nothing until fields are configured', () => {
+    expect(ruleIds('const c2 = { rawHtml: feed.html };')).not.toContain('no-dynamic-markup');
+  });
 });
 
 describe('realistic clean scripts', () => {

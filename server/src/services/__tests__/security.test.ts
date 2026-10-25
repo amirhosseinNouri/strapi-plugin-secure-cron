@@ -18,6 +18,41 @@ describe('security service', () => {
     expect(configured.check(script)).toMatchObject({ passed: true, findings: [] });
   });
 
+  it('passes the configured markdownFields to the check', () => {
+    const script = 'const c = { rawHtml: feed.html };';
+    expect(securityService(createMockStrapi()).check(script).passed).toBe(true);
+    expect(securityService(createMockStrapi({ markdownFields: ['rawHtml'] })).check(script)).toMatchObject({
+      passed: false,
+      findings: [expect.objectContaining({ ruleId: 'no-dynamic-markup' })],
+    });
+  });
+
+  describe('guard', () => {
+    const job: any = { documentId: 'abc', name: 'Prices', script: '' };
+
+    it('returns no findings without a publishGuard or when the check is off', async () => {
+      expect(await securityService(createMockStrapi()).guard(job)).toEqual([]);
+      const guard = jest.fn(() => [{ severity: 'error', message: 'x' }]);
+      expect(await securityService(createMockStrapi({ securityCheck: false, publishGuard: guard })).guard(job)).toEqual([]);
+      expect(guard).not.toHaveBeenCalled();
+    });
+
+    it('passes strapi and the job to the guard and returns its findings', async () => {
+      const { strapi } = createMockStrapi();
+      const guard = jest.fn(async () => [{ severity: 'error' as const, message: 'food/home is misused' }]);
+      strapi.plugin = jest.fn(() => ({ config: (key: string) => (key === 'publishGuard' ? guard : undefined) }));
+      expect(await securityService({ strapi }).guard(job)).toEqual([{ severity: 'error', message: 'food/home is misused' }]);
+      expect(guard).toHaveBeenCalledWith({ strapi, cronJob: job });
+    });
+
+    it('fails closed when the guard throws or returns garbage', async () => {
+      const throwing = securityService(createMockStrapi({ publishGuard: () => { throw new Error('db down'); } }));
+      expect(await throwing.guard(job)).toEqual([{ severity: 'error', message: 'The publish guard failed: db down' }]);
+      const garbage = securityService(createMockStrapi({ publishGuard: () => 'nope' }));
+      expect(await garbage.guard(job)).toEqual([]);
+    });
+  });
+
   it('treats a missing script as empty', () => {
     expect(securityService(createMockStrapi()).check(undefined)).toMatchObject({ enabled: true, passed: true });
   });
